@@ -13,7 +13,7 @@ from ._commands import CommandResult, Commands
 from ._config import Config, _auth_headers
 from ._exceptions import ApiError, AuthenticationError, CubeSandboxError, SandboxNotFoundError, TemplateNotFoundError
 from ._filesystem import Filesystem
-from ._models import Execution, ExecutionError, OutputMessage, Result, SnapshotInfo
+from ._models import Execution, ExecutionError, OutputMessage, Result, SandboxInfo, SnapshotInfo
 from ._policy import (
     Rule,
     _normalize_rules_arg,
@@ -541,12 +541,19 @@ class Sandbox:
         if self._clone_cleanup is not None:
             self._clone_cleanup.release(self.sandbox_id)
 
-    def get_info(self) -> dict:
+    def get_info(self) -> SandboxInfo:
         """GET /sandboxes/:sandboxID - Get sandbox detail.
 
         Returns:
-            A dict containing ``sandboxID``, ``state``, ``cpuCount``,
-            ``memoryMB``, ``startedAt``, and other sandbox metadata.
+            A :class:`SandboxInfo` exposing E2B-compatible ``snake_case``
+            attributes (``sandbox_id``, ``template_id``, ``sandbox_domain``,
+            ``started_at`` / ``end_at`` as ``datetime``, ``state`` as
+            ``SandboxState | str | None``, ``cpu_count``, ``memory_mb``,
+            ``envd_version``, ``metadata``, ``name`` ...), plus the
+            CubeSandbox-specific ``disk_size_mb`` attribute. For backward
+            compatibility the object is also a dict containing the raw CubeAPI
+            JSON snapshot (excluding the sensitive ``envdAccessToken``), e.g.
+            ``info["sandboxID"]`` or ``info.get("state")``.
 
         Raises:
             SandboxNotFoundError: If the sandbox does not exist (HTTP 404).
@@ -554,7 +561,7 @@ class Sandbox:
         """
         resp = self._session.get(f"{self._config.api_url}/sandboxes/{self.sandbox_id}")
         _check_response(resp)
-        return resp.json()
+        return SandboxInfo.from_dict(resp.json())
 
 
     def __enter__(self) -> "Sandbox":
