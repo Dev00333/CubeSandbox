@@ -162,6 +162,7 @@ pub fn init_rootfs(
     spec: &Spec,
     cpath: &HashMap<String, String>,
     mounts: &HashMap<String, String>,
+    cgroup_path: &str,
     bind_device: bool,
 ) -> Result<()> {
     lazy_static::initialize(&OPTIONS);
@@ -217,7 +218,7 @@ pub fn init_rootfs(
         }
 
         if m.r#type == "cgroup" {
-            mount_cgroups(cfd_log, m, rootfs, flags, &data, cpath, mounts)
+            mount_cgroups(cfd_log, m, rootfs, flags, &data, cpath, mounts, cgroup_path)
                 .map_err(|e| anyhow!("mount cgroup {:} failed:{:}", m.source.as_str(), e))?;
         } else {
             if m.destination == "/dev" {
@@ -368,19 +369,39 @@ fn check_proc_mount(m: &Mount) -> Result<()> {
     Ok(())
 }
 
-fn mount_cgroups_v2(cfd_log: RawFd, m: &Mount, rootfs: &str, flags: MsFlags) -> Result<()> {
+fn cgroup2_scoped_source(cgroup_path: &str) -> Result<String> {
+    Ok(crate::cgroups::fs::cgroup_filesystem_path(cgroup_path)?
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn mount_cgroups_v2(
+    cfd_log: RawFd,
+    m: &Mount,
+    rootfs: &str,
+    flags: MsFlags,
+    cgroup_path: &str,
+) -> Result<()> {
     let olddir = unistd::getcwd()?;
     unistd::chdir(rootfs)?;
 
-    // https://github.com/opencontainers/runc/blob/09ddc63afdde16d5fb859a1d3ab010bd45f08497/libcontainer/rootfs_linux.go#L287
+    // Mount only this container's accounting subtree. envd creates `user`,
+    // `ptys`, and `socats` relative to /sys/fs/cgroup; binding the subtree
+    // makes those groups descendants of the Task.Stats cgroup instead of
+    // siblings at the guest hierarchy root.
+    let source = cgroup2_scoped_source(cgroup_path)?;
+    if !Path::new(&source).is_dir() {
+        return Err(anyhow!("guest cgroup path does not exist: {source}"));
+    }
+
     let bm = Mount {
-        source: "cgroup".to_string(),
-        r#type: "cgroup2".to_string(),
+        source,
+        r#type: "bind".to_string(),
         destination: m.destination.clone(),
         options: Vec::new(),
     };
 
-    let mount_flags: MsFlags = flags;
+    let mount_flags = flags | MsFlags::MS_BIND | MsFlags::MS_REC;
 
     mount_from(cfd_log, &bm, rootfs, mount_flags, "", "")?;
 
@@ -408,9 +429,10 @@ fn mount_cgroups(
     _data: &str,
     cpath: &HashMap<String, String>,
     mounts: &HashMap<String, String>,
+    cgroup_path: &str,
 ) -> Result<()> {
     if cgroups::hierarchies::is_cgroup2_unified_mode() {
-        return mount_cgroups_v2(cfd_log, m, rootfs, flags);
+        return mount_cgroups_v2(cfd_log, m, rootfs, flags, cgroup_path);
     }
     // mount tmpfs
     let ctm = Mount {
@@ -1117,6 +1139,17 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn cgroup2_scoped_source_keeps_paths_under_guest_mount() {
+        assert_eq!(
+            cgroup2_scoped_source("/default/container").unwrap(),
+            "/sys/fs/cgroup/default/container"
+        );
+        assert_eq!(cgroup2_scoped_source("").unwrap(), "/sys/fs/cgroup");
+        assert!(cgroup2_scoped_source("/default/../escape").is_err());
+        assert!(cgroup2_scoped_source("/default//escape").is_err());
+    }
+
+    #[test]
     #[serial(chdir)]
     fn test_init_rootfs() {
         let stdout_fd = std::io::stdout().as_raw_fd();
@@ -1125,7 +1158,7 @@ mod tests {
         let mounts = HashMap::new();
 
         // there is no spec.linux, should fail
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(
             ret.is_err(),
             "Should fail: there is no spec.linux. Got: {:?}",
@@ -1134,7 +1167,7 @@ mod tests {
 
         // there is no spec.Root, should fail
         spec.linux = Some(oci::Linux::default());
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(
             ret.is_err(),
             "should fail: there is no spec.Root. Got: {:?}",
@@ -1151,7 +1184,7 @@ mod tests {
         });
 
         // there is no spec.mounts, but should pass
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(ret.is_ok(), "Should pass. Got: {:?}", ret);
         let _ = remove_dir_all(rootfs.path().join("dev"));
         let _ = create_dir(rootfs.path().join("dev"));
@@ -1165,7 +1198,7 @@ mod tests {
         });
 
         // destination doesn't start with /, should fail
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(
             ret.is_err(),
             "Should fail: destination doesn't start with '/'. Got: {:?}",
@@ -1183,7 +1216,7 @@ mod tests {
             options: vec!["shared".into()],
         });
 
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(ret.is_ok(), "Should pass. Got: {:?}", ret);
         spec.mounts.pop();
         let _ = remove_dir_all(rootfs.path().join("dev"));
@@ -1197,7 +1230,7 @@ mod tests {
             options: vec!["shared".into()],
         });
 
-        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, true);
+        let ret = init_rootfs(stdout_fd, &spec, &cpath, &mounts, "", true);
         assert!(ret.is_ok(), "Should pass. Got: {:?}", ret);
     }
 
@@ -1239,6 +1272,7 @@ mod tests {
             "",
             &cpath,
             &cgroup_mounts,
+            "",
         );
         assert!(ret.is_ok(), "Should pass. Got: {:?}", ret);
     }
