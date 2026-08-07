@@ -716,6 +716,7 @@ patch_cubelet_config_template() {
   local network_cidr="${3:-}"
   local cube_router_enable="${4:-}"
   local cube_router_cidr="${5:-}"
+  local cube_egress_admin_port="${6:-}"
 
   ensure_file "${cubelet_config}"
   if [[ -L "${cubelet_config}" ]]; then
@@ -772,6 +773,24 @@ patch_cubelet_config_template() {
       log "patched cube-router CIDR: ${cube_router_cidr}"
     else
       log "WARNING: Cubelet config missing cube_router_cidr key; skipped cube-router CIDR patch (${cubelet_config})"
+    fi
+  fi
+
+  if [[ -n "${cube_egress_admin_port}" ]]; then
+    case "${cube_egress_admin_port}" in
+      *[!0-9]*|"")
+        die "invalid CUBE_EGRESS_ADMIN_PORT: ${cube_egress_admin_port}"
+        ;;
+    esac
+    local cube_egress_admin_url="http://127.0.0.1:${cube_egress_admin_port}"
+    if grep -Eq '^[[:space:]]*cube_egress_admin_url = "' "${cubelet_config}"; then
+      sed -i -E "s|^([[:space:]]*)cube_egress_admin_url = \"[^\"]*\"|\1cube_egress_admin_url = \"${cube_egress_admin_url}\"|" "${cubelet_config}"
+      if ! grep -Eq "^[[:space:]]*cube_egress_admin_url = \"${cube_egress_admin_url}\"\$" "${cubelet_config}"; then
+        log "WARNING: failed to patch cube_egress_admin_url in Cubelet config (${cubelet_config})"
+      fi
+      log "patched cube-egress admin URL: ${cube_egress_admin_url}"
+    else
+      log "WARNING: Cubelet config missing cube_egress_admin_url key; skipped admin URL patch (${cubelet_config})"
     fi
   fi
 }
@@ -1860,14 +1879,15 @@ _check_cidr_conflict() {
     elif (( cidr_net_start <= cd_net_end && cidr_net_end >= cd_net_start )); then
       # Different network that overlaps the requested CIDR -> disruptive change
       # on a host that already has a cube network. A reboot alone is NOT enough
-      # because the systemd target is enabled and network-agent rebuilds the old
-      # network from config.toml; a deterministic reset is required.
+      # because the systemd target is enabled and cubelet's embedded network
+      # runtime rebuilds the old network from config.toml; a deterministic reset
+      # is required.
       die "${cidr_label} '${cidr}' overlaps an existing cube-dev network (${cd_network}/${cd_mask}).
 
   Changing the sandbox CIDR on a host that already has a cube network is
   disruptive: the old cube-dev and the persistent z* TAP devices are left
   stale. A reboot alone is NOT enough -- the systemd target is enabled and
-  network-agent rebuilds the old network from config.toml on boot.
+  cubelet's embedded network runtime rebuilds the old network from config.toml on boot.
 
   To change the CIDR, fully reset the cube network first:
     sudo systemctl stop 'cube-sandbox-*.target'
@@ -1883,7 +1903,7 @@ _check_cidr_conflict() {
     CUBE_SANDBOX_NETWORK_CIDR_SKIP_CONFLICT_CHECK=1"
     fi
     # else: cube-dev exists but does not overlap the requested CIDR -> allow;
-    # network-agent will reconcile cube-dev to the new network.
+    # Cubelet's embedded network runtime will reconcile cube-dev to the new network.
   fi
 }
 

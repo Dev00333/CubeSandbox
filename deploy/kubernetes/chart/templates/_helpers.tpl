@@ -797,7 +797,7 @@ Toolbox is mounted whole at the fixed path.
 {{- end -}}
 
 {{/*
-Privileged securityContext shared by cubelet / network-agent / placeholder slots.
+Privileged securityContext shared by cubelet / placeholder slots.
 Must stay identical across frozen Big Pod containers (securityContext is not InPlace).
 */}}
 {{- define "cube.nodeDataplaneSecurityContext" -}}
@@ -948,6 +948,8 @@ Bootstrap: host mutation mounts for pvm / node-init.
   value: {{ .Values.cubeNode.network.ethName | quote }}
 - name: CUBE_SANDBOX_NETWORK_CIDR
   value: {{ .Values.cubeNode.network.cidr | quote }}
+- name: CUBE_EGRESS_ADMIN_PORT
+  value: {{ .Values.cubeEgress.adminPort | quote }}
 - name: CUBE_SANDBOX_DNS_SERVERS
   {{- if .Values.cubeNode.dns.sandbox.nameservers }}
   value: {{ join "," .Values.cubeNode.dns.sandbox.nameservers | quote }}
