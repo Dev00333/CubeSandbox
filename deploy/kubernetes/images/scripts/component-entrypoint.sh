@@ -168,6 +168,7 @@ stage_component() {
     cubelet)
       chmod +x "${dst}/bin/cubelet" "${dst}/bin/cubecli" 2>/dev/null || true
       [[ -x "${dst}/bin/cubelet" ]] || fail "missing cubelet after stage"
+      [[ -x "${dst}/bin/cubecli" ]] || fail "missing cubecli after stage"
       ;;
     cube-shim)
       chmod +x "${dst}/bin/cube-runtime" "${dst}/bin/containerd-shim-cube-rs" 2>/dev/null || true
