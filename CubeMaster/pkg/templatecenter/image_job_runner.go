@@ -18,7 +18,7 @@ import (
 	CubeLog "github.com/tencentcloud/CubeSandbox/cubelog"
 )
 
-func runTemplateImageJob(ctx context.Context, jobID string, req *types.CreateTemplateFromImageReq, downloadBaseURL string) {
+func runTemplateImageJob(ctx context.Context, jobID string, req *types.CreateTemplateFromImageReq, downloadBaseURL string, envdPayload *EnvdInjectionPayload) {
 	logger := log.G(ctx).WithFields(map[string]any{
 		"job_id":      jobID,
 		"template_id": req.TemplateID,
@@ -83,7 +83,11 @@ func runTemplateImageJob(ctx context.Context, jobID string, req *types.CreateTem
 		})
 		return
 	}
-	fingerprint := buildTemplateSpecFingerprintWithCA(req, source.Digest, caFingerprint)
+	envdSHA := ""
+	if envdPayload != nil {
+		envdSHA = envdPayload.SHA256
+	}
+	fingerprint := buildTemplateSpecFingerprintWithEnvdSHA(req, source.Digest, caFingerprint, envdSHA)
 	artifactID := buildArtifactID(fingerprint)
 	if err := updateTemplateImageJob(ctx, jobID, map[string]any{
 		"artifact_id":               artifactID,
@@ -94,7 +98,7 @@ func runTemplateImageJob(ctx context.Context, jobID string, req *types.CreateTem
 	}); err != nil {
 		logger.Errorf("update job source metadata fail: %v", err)
 	}
-	artifact, generatedReq, builtFreshArtifact, err := ensureRootfsArtifact(ctx, req, source, downloadBaseURL)
+	artifact, generatedReq, builtFreshArtifact, err := ensureRootfsArtifact(ctx, req, source, downloadBaseURL, envdPayload)
 	if err != nil {
 		if !pullProgressFlushed {
 			pullProgress.flush(false)

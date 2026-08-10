@@ -86,6 +86,11 @@ const (
 
 	CubeAnnotationsVirtiofsCache = "cube.master.virtiofs.cache"
 
+	CubeAnnotationsInjectEnvd      = "cube.master.inject_envd"
+	CubeAnnotationsInjectEnvdOptIn = "true"
+	CubeEnvdInImagePath            = "/usr/local/bin/envd"
+	MaxEnvdPayloadBytes            = 16 * 1024 * 1024
+
 	// CubeAnnotationComponentsPrefix is the namespace for pre-installed
 	// runtime-component metadata carried on templates/sandboxes.
 	CubeAnnotationComponentsPrefix = "cube.master.components."
