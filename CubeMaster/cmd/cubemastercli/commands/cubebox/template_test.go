@@ -779,6 +779,12 @@ func TestResolveTemplateIDFromAllTemplateCommands(t *testing.T) {
 			want: "tpl-redo-1",
 		},
 		{
+			name: "set-alias via positional arg",
+			cmd:  TemplateSetAliasCommand,
+			args: []string{"tpl-set-1"},
+			want: "tpl-set-1",
+		},
+		{
 			name: "info flag overrides positional",
 			cmd:  TemplateInfoCommand,
 			args: []string{"--template-id", "flag-id", "positional-id"},
@@ -793,6 +799,12 @@ func TestResolveTemplateIDFromAllTemplateCommands(t *testing.T) {
 		{
 			name: "redo flag overrides positional",
 			cmd:  TemplateRedoCommand,
+			args: []string{"--template-id", "flag-id", "positional-id"},
+			want: "flag-id",
+		},
+		{
+			name: "set-alias flag overrides positional",
+			cmd:  TemplateSetAliasCommand,
 			args: []string{"--template-id", "flag-id", "positional-id"},
 			want: "flag-id",
 		},

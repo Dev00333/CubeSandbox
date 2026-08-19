@@ -867,6 +867,17 @@ pub struct RebuildTemplateRequest {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Body for PUT /templates/:id/alias (set / modify / clear alias).
+///
+/// `alias` is `None` / null / empty string ⇒ clear the current alias.
+/// A non-empty value is validated by CubeMaster's `validateTemplateAlias`
+/// (the single source of truth; CubeAPI does not re-validate).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetTemplateAliasRequest {
+    #[serde(default)]
+    pub alias: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TemplateAliasLookupResponse {
     #[serde(rename = "templateID")]
